@@ -20,17 +20,18 @@ async function execute(actor,action,data){
  try{await originalConsume.call(item,1);}catch(e){await actor.deleteEmbeddedDocuments('Item',created.map(i=>i.id));throw e;}
  return {status:'used',effects:created.map(i=>i.id),actor:actor.uuid};
 }
-export async function use(item){
+export async function use(item, amount = 1){
  if(!item.actor.isOwner)throw Error('Character ownership is required.');if(busy.has(item.uuid))return;busy.add(item.uuid);
  try{
-  const choices=await effects(item);if(!choices.length)return originalConsume.call(item,1);
+  const choices=await effects(item);if(!choices.length)return await originalConsume.call(item,amount);
+  if(amount!==1)throw Error('Drink one dose at a time to apply this potion’s effect.');
   let effect=choices[0];if(choices.length>1){const selected=await foundry.applications.api.DialogV2.wait({window:{title:'Potion Effect'},content:`<p>Choose the effect for ${esc(item.name)}.</p><select>${choices.map((e,i)=>`<option value="${i}">${esc(e.name)}</option>`).join('')}</select>`,buttons:[{action:'use',label:'Drink potion',default:true,callback:(_e,_b,d)=>Number(d.element.querySelector('select').value)},{action:'cancel',label:'Cancel',callback:()=>false}],rejectClose:false});if(selected===null||selected===false)return;effect=choices[selected];}
-  return request(item.actor,'use',{item:item.id,effect:effect.uuid});
+  return await request(item.actor,'use',{item:item.id,effect:effect.uuid});
  }finally{busy.delete(item.uuid);}
 }
 Hooks.once('ready',()=>{
  request=transport(ID,execute);const proto=CONFIG.PF2E.Item.documentClasses.consumable.prototype;originalConsume=proto.consume;
- proto.consume=async function(...args){if(eligible(this))return use(this);return originalConsume.apply(this,args);};
+ proto.consume=async function(...args){if(eligible(this))return use(this,...args);return originalConsume.apply(this,args);};
  game.modules.get(ID).api={effects,use,request:(a,action,data)=>request(a,action,data)};
  Hooks.on('renderConsumableSheetPF2e',async(sheet,html)=>{
   const item=sheet.item;if(item.category!=='potion'||!sheet.isEditable)return;const root=html instanceof HTMLElement?html:html[0],panel=root.querySelector('[data-tab="details"]');if(!panel||panel.querySelector('.potion-effects-config'))return;
